@@ -29,6 +29,7 @@ export const useSocket = () => {
   const dispatch = useDispatch();
   const { token, user } = useSelector((state) => state.auth);
   const socketRef = useRef(null);
+  const processedMessagesRef = useRef(new Set()); // Track processed message IDs
 
   /**
    * Initialize socket connection
@@ -56,32 +57,80 @@ export const useSocket = () => {
       console.log('Socket connected:', socket.id);
     });
 
-    // New message event
+    // New message event - only for messages received from others
     socket.on('new-message', (data) => {
       const { message } = data;
-      dispatch(
-        addMessage({
-          chatId: message.chatId,
-          message,
-        })
-      );
-      dispatch(
-        updateChatLastMessage({
-          chatId: message.chatId,
-          lastMessage: message,
-        })
-      );
+      // Only add if it's not from current user (to avoid duplicates)
+      if (message && message._id && message.senderId) {
+        const messageId = message._id.toString();
+        const senderId = message.senderId._id || message.senderId;
+        
+        // Skip if already processed
+        if (processedMessagesRef.current.has(messageId)) {
+          return;
+        }
+        
+        // Only add if message is from someone else
+        if (senderId.toString() !== user?._id?.toString()) {
+          processedMessagesRef.current.add(messageId);
+          
+          // Normalize message data before adding
+          const normalizedMessage = {
+            ...message,
+            createdAt: message.createdAt ? (message.createdAt instanceof Date ? message.createdAt.toISOString() : message.createdAt) : new Date().toISOString(),
+            readAt: message.readAt ? (message.readAt instanceof Date ? message.readAt.toISOString() : message.readAt) : null,
+          };
+          dispatch(
+            addMessage({
+              chatId: message.chatId,
+              message: normalizedMessage,
+            })
+          );
+          dispatch(
+            updateChatLastMessage({
+              chatId: message.chatId,
+              lastMessage: normalizedMessage,
+            })
+          );
+          
+          // Clean up after 5 seconds to prevent memory leak
+          setTimeout(() => {
+            processedMessagesRef.current.delete(messageId);
+          }, 5000);
+        }
+      }
     });
 
-    // Message sent confirmation
+    // Message sent confirmation - add message from server
     socket.on('message-sent', (data) => {
       const { message } = data;
-      dispatch(
-        addMessage({
-          chatId: message.chatId,
-          message,
-        })
-      );
+      // Only dispatch if we have a valid message with _id
+      if (message && message._id) {
+        const messageId = message._id.toString();
+        // Skip if already processed
+        if (processedMessagesRef.current.has(messageId)) {
+          return;
+        }
+        processedMessagesRef.current.add(messageId);
+        
+        // Normalize message data before adding
+        const normalizedMessage = {
+          ...message,
+          createdAt: message.createdAt ? (message.createdAt instanceof Date ? message.createdAt.toISOString() : message.createdAt) : new Date().toISOString(),
+          readAt: message.readAt ? (message.readAt instanceof Date ? message.readAt.toISOString() : message.readAt) : null,
+        };
+        dispatch(
+          addMessage({
+            chatId: message.chatId,
+            message: normalizedMessage,
+          })
+        );
+        
+        // Clean up after 5 seconds to prevent memory leak
+        setTimeout(() => {
+          processedMessagesRef.current.delete(messageId);
+        }, 5000);
+      }
     });
 
     // Messages read event

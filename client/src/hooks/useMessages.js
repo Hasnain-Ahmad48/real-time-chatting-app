@@ -52,42 +52,22 @@ export const useMessages = (chatId) => {
   // Memoized function to send message
   const handleSendMessage = useCallback(
     (messageData) => {
-      // Generate clientId for optimistic UI + dedup
+      // Generate clientId for deduplication (no optimistic UI to prevent duplicates)
       const clientId = `${chatId || 'chat'}-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2, 8)}`;
 
-      // Optimistic add
-      dispatch(
-        addMessage({
-          chatId,
-          message: {
-            _id: clientId, // temp id for rendering
-            clientId,
-            chatId,
-            receiverId: messageData.receiverId,
-            senderId: {
-              _id: user?._id,
-              name: user?.name,
-              avatar: user?.avatar,
-            },
-            text: messageData.text,
-            mediaURL: messageData.mediaURL || '',
-            mediaType: messageData.mediaType || '',
-            status: 'sending',
-            createdAt: new Date().toISOString(),
-          },
-        })
-      );
-
-      // Emit via socket
+      // DON'T add optimistic message - wait for server confirmation
+      // This prevents duplicates
+      
+      // Emit via socket - server will send back message-sent event
       sendMessage({
         ...messageData,
         chatId,
         clientId,
       });
     },
-    [chatId, sendMessage, dispatch, user]
+    [chatId, sendMessage]
   );
 
   // Memoized function to handle typing

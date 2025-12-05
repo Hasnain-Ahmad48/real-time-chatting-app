@@ -103,7 +103,7 @@ const Chat = () => {
         <div className="p-4 border-b bg-primary-500 text-white">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold">Chats</h1>
+              <h1 className="text-xl font-bold">ChatVerse</h1>
               <div className="flex items-center mt-2 text-sm">
                 <div
                   className={`w-2 h-2 rounded-full mr-2 ${

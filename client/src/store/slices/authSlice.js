@@ -151,3 +151,6 @@ const authSlice = createSlice({
 export const { clearError, updateUser } = authSlice.actions;
 export default authSlice.reducer;
 
+
+
+

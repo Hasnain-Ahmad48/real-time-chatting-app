@@ -95,13 +95,39 @@ const MessageInput = ({
       const file = e.target.files[0];
       if (!file) return;
 
+      // Validate file size (5MB limit)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('File size must be less than 5MB');
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        return;
+      }
+
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file');
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        return;
+      }
+
       setUploading(true);
       try {
         const response = await uploadService.uploadImage(file);
-        await handleSend('', response.data.url, 'image');
+        
+        if (response.success && response.data && response.data.url) {
+          await handleSend('', response.data.url, 'image');
+        } else {
+          throw new Error(response.message || 'Upload failed');
+        }
       } catch (error) {
         console.error('Upload error:', error);
-        alert('Failed to upload image');
+        const errorMessage = error.response?.data?.message || 
+                           error.message || 
+                           'Failed to upload image. Please check your Cloudinary configuration in the server .env file.';
+        alert(errorMessage);
       } finally {
         setUploading(false);
         if (fileInputRef.current) {
@@ -166,4 +192,7 @@ const MessageInput = ({
 };
 
 export default MessageInput;
+
+
+
 

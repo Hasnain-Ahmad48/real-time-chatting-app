@@ -12,3 +12,6 @@ router.post('/image', upload.single('image'), uploadImage);
 
 export default router;
 
+
+
+

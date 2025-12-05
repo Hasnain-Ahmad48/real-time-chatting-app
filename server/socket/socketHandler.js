@@ -100,9 +100,9 @@ export const initializeSocket = (io) => {
           lastMessageAt: new Date(),
         });
 
-        // Emit to receiver if online
+        // Emit to receiver if online (and not the sender)
         const receiverSocketId = activeUsers.get(receiverId);
-        if (receiverSocketId) {
+        if (receiverSocketId && receiverId !== userId) {
           // Mark as delivered immediately if receiver is online
           message.status = 'delivered';
           await message.save();
@@ -112,7 +112,7 @@ export const initializeSocket = (io) => {
           });
         }
 
-        // Emit confirmation to sender
+        // Emit confirmation to sender (always, to replace optimistic message)
         socket.emit('message-sent', {
           message: messageObj,
         });

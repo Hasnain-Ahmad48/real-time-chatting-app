@@ -39,24 +39,69 @@ const messageSlice = createSlice({
         state.messages[chatId] = [];
       }
 
-      // Normalize IDs to strings for reliable comparison
-      const incomingId = message._id ? message._id.toString() : null;
-      const incomingClientId = message.clientId || null;
+      // Normalize message data - convert Date objects to ISO strings
+      const normalizedMessage = {
+        ...message,
+        createdAt: message.createdAt ? (message.createdAt instanceof Date ? message.createdAt.toISOString() : message.createdAt) : new Date().toISOString(),
+        readAt: message.readAt ? (message.readAt instanceof Date ? message.readAt.toISOString() : message.readAt) : null,
+      };
 
+      // Normalize IDs to strings for reliable comparison
+      const incomingId = normalizedMessage._id ? normalizedMessage._id.toString() : null;
+      const incomingClientId = normalizedMessage.clientId || null;
+      const incomingSenderId = normalizedMessage.senderId?._id ? normalizedMessage.senderId._id.toString() : (normalizedMessage.senderId ? normalizedMessage.senderId.toString() : null);
+      const incomingText = normalizedMessage.text || '';
+      const incomingCreatedAt = normalizedMessage.createdAt;
+
+      // Find existing message by _id, clientId, or by content (for deduplication)
       const existingIndex = state.messages[chatId].findIndex((m) => {
         const mid = m._id ? m._id.toString() : null;
         const mClientId = m.clientId || null;
-        return (incomingId && mid === incomingId) || (incomingClientId && mClientId === incomingClientId);
+        const mSenderId = m.senderId?._id ? m.senderId._id.toString() : (m.senderId ? m.senderId.toString() : null);
+        const mText = m.text || '';
+        const mCreatedAt = m.createdAt;
+        
+        // Match by MongoDB _id (exact match) - highest priority
+        if (incomingId && mid && mid === incomingId) {
+          return true;
+        }
+        
+        // Match by clientId (for optimistic UI deduplication)
+        if (incomingClientId && mClientId && mClientId === incomingClientId) {
+          return true;
+        }
+        
+        // Match optimistic message by clientId stored in _id
+        if (incomingId && mClientId && incomingId === mClientId) {
+          return true;
+        }
+        
+        // Match if optimistic _id matches incoming clientId
+        if (incomingClientId && mid && mid === incomingClientId) {
+          return true;
+        }
+        
+        // Match by content + sender + time (within 2 seconds) - catch duplicates
+        if (incomingText && mText && 
+            incomingText === mText && 
+            incomingSenderId && mSenderId && 
+            incomingSenderId === mSenderId &&
+            incomingCreatedAt && mCreatedAt) {
+          const timeDiff = Math.abs(new Date(incomingCreatedAt).getTime() - new Date(mCreatedAt).getTime());
+          if (timeDiff < 2000) { // Within 2 seconds
+            return true;
+          }
+        }
+        
+        return false;
       });
 
       if (existingIndex !== -1) {
-        // Merge/update existing (replace optimistic with server copy)
-        state.messages[chatId][existingIndex] = {
-          ...state.messages[chatId][existingIndex],
-          ...message,
-        };
+        // Replace existing message with new one (server message takes precedence)
+        state.messages[chatId][existingIndex] = normalizedMessage;
       } else {
-        state.messages[chatId].push(message);
+        // Only add if it doesn't exist
+        state.messages[chatId].push(normalizedMessage);
       }
     },
     /**
@@ -73,11 +118,15 @@ const messageSlice = createSlice({
     updateMessageStatus: (state, action) => {
       const { chatId, messageId, status } = action.payload;
       if (state.messages[chatId]) {
-        const message = state.messages[chatId].find((m) => m._id === messageId);
+        const message = state.messages[chatId].find((m) => {
+          const mid = m._id?.toString() || m._id;
+          const targetId = messageId?.toString() || messageId;
+          return mid === targetId;
+        });
         if (message) {
           message.status = status;
           if (status === 'read') {
-            message.readAt = new Date();
+            message.readAt = new Date().toISOString(); // Store as ISO string, not Date object
           }
         }
       }
@@ -89,9 +138,10 @@ const messageSlice = createSlice({
       const { chatId, messageIds } = action.payload;
       if (state.messages[chatId]) {
         state.messages[chatId].forEach((message) => {
-          if (messageIds.includes(message._id)) {
+          const messageId = message._id?.toString() || message._id;
+          if (messageIds.some(id => (id?.toString() || id) === messageId)) {
             message.status = 'read';
-            message.readAt = new Date();
+            message.readAt = new Date().toISOString(); // Store as ISO string, not Date object
           }
         });
       }
@@ -129,12 +179,19 @@ const messageSlice = createSlice({
         const { messages, pagination } = action.payload;
         const chatId = action.meta.arg.chatId;
 
+        // Normalize dates to ISO strings
+        const normalizedMessages = messages.map(msg => ({
+          ...msg,
+          createdAt: msg.createdAt ? (msg.createdAt instanceof Date ? msg.createdAt.toISOString() : msg.createdAt) : new Date().toISOString(),
+          readAt: msg.readAt ? (msg.readAt instanceof Date ? msg.readAt.toISOString() : msg.readAt) : null,
+        }));
+
         if (pagination.page === 1) {
           // First page - replace messages
-          state.messages[chatId] = messages;
+          state.messages[chatId] = normalizedMessages;
         } else {
           // Subsequent pages - prepend messages
-          state.messages[chatId] = [...messages, ...(state.messages[chatId] || [])];
+          state.messages[chatId] = [...normalizedMessages, ...(state.messages[chatId] || [])];
         }
       })
       .addCase(fetchMessages.rejected, (state, action) => {
